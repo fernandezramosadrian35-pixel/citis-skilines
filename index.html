@@ -178,7 +178,7 @@ const pick=(arr,i)=>arr[((i%arr.length)+arr.length)%arr.length];
 const fmt=n=>(n<0?'-':'')+Math.floor(Math.abs(n)).toLocaleString('es-ES');
 
 /* --- Economía (rebalanceada) --- */
-const START_MONEY=1500, REFUND=.2;
+const START_MONEY=3000, REFUND=.2;
 const R={power:6,water:6,park:3.5};
 const CAP={power:80,water:80};
 const SZ_LBL=['Pequeño 1×1','Mediano 2×2','Grande 3×3'];
@@ -1485,7 +1485,7 @@ function openModal(html){$('mBody').innerHTML=html;$('modal').classList.add('sho
 function closeModal(){$('modal').classList.remove('show');}
 function helpHTML(){
   return '<h2>🏙️ Cómo jugar</h2><ul>'+
-    '<li>Empiezas con <b>$1.500</b> y la ciudad vacía. Primero una <b>🛣️ carretera</b>; las carreteras se colocan con un toque.</li>'+
+    '<li>Empiezas con <b>$'+fmt(START_MONEY)+'</b> y la ciudad vacía. Primero una <b>🛣️ carretera</b>; las carreteras se colocan con un toque.</li>'+
     '<li><b>Todo edificio</b> necesita una carretera adyacente; si no, muestra 🚧 y queda inactivo. Las zonas además necesitan ⚡ y 💧 dentro del radio.</li>'+
     '<li>Con otras herramientas, toca una celda para ver la vista previa y toca <b>otra vez</b> (o «Construir») para edificar.</li>'+
     '<li>Las zonas crecen <b>despacio</b> (14 y 26 días de demanda estable). El nivel 3 exige una <b>Avenida</b> adyacente.</li>'+
