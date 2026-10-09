@@ -93,6 +93,14 @@ button{font-family:inherit;color:inherit;cursor:pointer;touch-action:manipulatio
 .mb.warn{background:rgba(255,90,95,.25)}
 .mb:active{transform:scale(.98)}
 #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;background:#0b1626;color:#fff;z-index:50;font-size:16px;line-height:1.6;padding:20px}
+
+/* v2 */
+#subbar{flex-direction:column;gap:4px}
+.srow{display:flex;gap:4px}
+.sb{padding:.35em .1em}
+.sb i{font-size:1.2em}
+#vAlert{font-style:normal;margin-left:.45em;font-weight:800;animation:pls 1s infinite}
+@keyframes pls{50%{opacity:.45}}
 </style>
 </head>
 <body>
@@ -111,7 +119,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;touch-action:manipulatio
     </div>
     <div class="row2">
       <div class="glass daybox">
-        <div>Día <b id="vDay">1</b><span id="vNet"></span></div>
+        <div>Día <b id="vDay">1</b><span id="vNet"></span><em id="vAlert"></em></div>
         <div class="dbar"><div id="dayBar"></div></div>
       </div>
       <div class="glass rci">
@@ -139,7 +147,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;touch-action:manipulatio
         <button class="btn x" id="ibX" aria-label="Cerrar">✕</button>
       </div>
     </div>
-    <div id="subbar" class="glass hidden"></div>
+    <div id="subbar" class="glass hidden"><div id="sub1" class="srow"></div><div id="sub2" class="srow hidden"></div></div>
     <div id="toolbar" class="glass"></div>
   </div>
 
@@ -163,49 +171,101 @@ const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const rand=(a,b)=>a+Math.random()*(b-a);
 const N=16, HALF=N/2, DAY_LEN=5;
-const SAVE_KEY='skyline-mobile-builder-v1';
+const SAVE_KEY='skyline-mobile-builder-v2';
 const cx=i=>i-HALF+.5, cz=j=>j-HALF+.5;
 const inb=(i,j)=>i>=0&&j>=0&&i<N&&j<N;
 const pick=(arr,i)=>arr[((i%arr.length)+arr.length)%arr.length];
-const fmt=n=>Math.floor(n).toLocaleString('es-ES');
+const fmt=n=>(n<0?'-':'')+Math.floor(Math.abs(n)).toLocaleString('es-ES');
 
-const R={power:6,water:6,police:5,park:3.5,pollution:3};
-const CAP={power:100,water:90};
-const SVC=['power','water','police'];
-
-const TOOLS={
-  res:{name:'Zona Residencial',icon:'🏠',cost:100,zone:true,upkeep:0,tint:'#bfe8ab',desc:'Viviendas que crecen hasta 3 niveles.'},
-  com:{name:'Zona Comercial',icon:'🏪',cost:150,zone:true,upkeep:0,tint:'#a9d4f5',desc:'Tiendas y oficinas: dan empleo e ingresos.'},
-  ind:{name:'Zona Industrial',icon:'🏭',cost:200,zone:true,upkeep:0,tint:'#f2da8f',desc:'Fábricas: mucho empleo, algo de polución.'},
-  road:{name:'Carretera',icon:'🛣️',cost:10,upkeep:.5,desc:'Conecta tus zonas.'},
-  park:{name:'Parque',icon:'🌳',cost:80,upkeep:2,desc:'Sube la felicidad en un radio de 3 casillas.'},
-  power:{name:'Planta Eléctrica',icon:'⚡',cost:800,upkeep:15,desc:'Produce 100 de energía · radio 6.'},
-  water:{name:'Torre de Agua',icon:'💧',cost:500,upkeep:10,desc:'Produce 90 de agua · radio 6.'},
-  police:{name:'Comisaría',icon:'🚓',cost:600,upkeep:12,desc:'Seguridad: felicidad en radio 5.'}
+/* --- Economía (rebalanceada) --- */
+const START_MONEY=1500, REFUND=.2;
+const R={power:6,water:6,park:3.5};
+const CAP={power:80,water:80};
+const SZ_LBL=['Pequeño 1×1','Mediano 2×2','Grande 3×3'];
+/* Servicios por tamaño: coste, mantenimiento/día, radio, capacidad (niveles de edificio atendidos) */
+const SV={
+  police:{names:['Puesto de policía','Comisaría','Jefatura de policía'],cost:[350,900,2000],up:[6,16,36],r:[3.5,5,7],cap:[10,30,70]},
+  fire:{names:['Retén de bomberos','Parque de bomberos','Cuartel central'],cost:[400,1000,2200],up:[7,18,40],r:[3.5,5,7],cap:[10,30,70]},
+  waste:{names:['Punto de recogida','Vertedero','Gran vertedero'],cost:[300,800,1800],up:[5,14,30],r:[4,6,8],cap:[14,45,110]}
 };
+const TOOLS={
+  res:{name:'Zona Residencial',icon:'🏠',cost:120,zone:true,upkeep:0,tint:'#bfe8ab',desc:'Viviendas (3 niveles). Necesita carretera, ⚡ y 💧.'},
+  com:{name:'Zona Comercial',icon:'🏪',cost:200,zone:true,upkeep:0,tint:'#a9d4f5',desc:'Comercios: empleo e ingresos. Necesita clientes.'},
+  ind:{name:'Zona Industrial',icon:'🏭',cost:260,zone:true,upkeep:0,tint:'#f2da8f',desc:'Fábricas: mucho empleo, pero hacen ruido.'},
+  road:{name:'Carretera',icon:'🛣️',desc:'Todo edificio necesita una carretera adyacente.'},
+  park:{name:'Parque',icon:'🌳',cost:90,upkeep:3,desc:'Sube la felicidad en radio 3.5. Necesita carretera.'},
+  power:{name:'Planta Eléctrica',icon:'⚡',cost:500,upkeep:9,desc:'Produce 80 de energía · radio 6.'},
+  water:{name:'Torre de Agua',icon:'💧',cost:350,upkeep:7,desc:'Produce 80 de agua · radio 6.'},
+  police:{name:'Policía',icon:'🚓'},
+  fire:{name:'Bomberos',icon:'🚒'},
+  waste:{name:'Residuos',icon:'🗑️'}
+};
+const ROADS={
+  basic:{name:'Carretera básica',cost:15,upkeep:.4,cap:25,icon:'🛣️'},
+  avenue:{name:'Avenida principal',cost:60,upkeep:1.5,cap:70,icon:'🛤️'}
+};
+const ROAD_UPG=55;
+const KINDS=['power','water','police','fire','waste'];
+const SHORT={power:'Energía',water:'Agua',police:'Policía',fire:'Bomberos',waste:'Residuos'};
 const LEVEL_NAMES={
   res:['Casas','Edificio de pisos','Torre residencial'],
   com:['Tienda','Centro comercial','Rascacielos'],
   ind:['Almacén','Fábrica','Complejo industrial']
 };
-const POPCAP=[10,28,60];
-const JOBS={com:[6,16,36],ind:[10,24,50]};
-const INC={com:[15,40,85],ind:[18,46,95]};
-const CONS_P={res:[2,5,12],com:[3,7,16],ind:[6,14,30]};
+const POPCAP=[8,22,48];
+const JOBS={com:[5,14,30],ind:[8,20,42]};
+const INC={com:[14,36,76],ind:[16,40,84]};
+const CONS_P={res:[2,5,11],com:[3,7,15],ind:[6,14,28]};
 const CONS_W={res:[1,3,7],com:[1,3,6],ind:[3,7,14]};
-const UPG={res:[150,350],com:[220,480],ind:[300,650]};
-const GROW=[4,7];
+const UPG={res:[180,420],com:[260,560],ind:[340,740]};
+const GROW=[14,26];                 /* días de demanda estable para subir de nivel */
+const TRIPS={res:[3,8,18],com:[5,14,30],ind:[4,10,22]};
+const TRASH_GEN=[2.5,4,6.5];        /* basura/día sin recogida */
 const HGT={res:[.75,1.0,2.25],com:[.5,1.0,2.9],ind:[.75,1.0,1.5]};
 const MILESTONES=[50,100,250,500,1000,2500,5000];
 const SPEEDS=[1,2,3,0], SPEED_LBL=['1×','2×','3×','⏸'];
+
+const isSv=k=>!!SV[k];
+function costOf(k,opt){
+  if(k==='road')return ROADS[opt||'basic'].cost;
+  if(SV[k])return SV[k].cost[(opt||1)-1];
+  return TOOLS[k].cost;
+}
+function upkeepOf(b){
+  if(b.key==='road')return ROADS[b.tier].upkeep;
+  if(SV[b.key])return SV[b.key].up[b.s-1];
+  return TOOLS[b.key].upkeep||0;
+}
+function radiusOf(b){
+  if(b.key==='power')return R.power;
+  if(b.key==='water')return R.water;
+  if(b.key==='park')return R.park;
+  if(SV[b.key])return SV[b.key].r[b.s-1];
+  return 0;
+}
+function nameOf(b){
+  if(b.key==='road')return ROADS[b.tier].name;
+  if(SV[b.key])return SV[b.key].names[b.s-1];
+  if(TOOLS[b.key].zone)return LEVEL_NAMES[b.key][b.level-1];
+  return TOOLS[b.key].name;
+}
+function iconOf(b){return b.key==='road'?ROADS[b.tier].icon:TOOLS[b.key].icon;}
+function topY(b){
+  if(HGT[b.key])return HGT[b.key][b.level-1];
+  if(SV[b.key])return .6+.2*b.s;
+  if(b.key==='water')return 1.15;
+  if(b.key==='power')return 1.0;
+  return .6;
+}
 
 let CFG={sound:true,quick:false,help:false};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem(SAVE_KEY+'-cfg')||'{}'));}catch(e){}
 function saveCfg(){try{localStorage.setItem(SAVE_KEY+'-cfg',JSON.stringify(CFG));}catch(e){}}
 
-const S={money:6000,day:1,pop:0,popTarget:0,happy:60,powerProd:0,powerCons:0,waterProd:0,waterCons:0,
-  income:0,upkeep:0,net:0,dR:.5,dC:.3,dI:.3,pr:1,wr:1,speedIdx:0,ms:0};
+const S={money:START_MONEY,day:1,pop:0,popTarget:0,happy:60,powerProd:0,powerCons:0,waterProd:0,waterCons:0,
+  income:0,upkeep:0,net:0,dR:.5,dC:.3,dI:.3,pr:1,wr:1,speedIdx:0,ms:0,fires:0,thefts:0};
 const grid=[];for(let i=0;i<N;i++)grid.push(new Array(N).fill(null));
+let ALL=[];
 
 /* ====================== AUDIO (Web Audio sintetizado) ====================== */
 let AC=null;
@@ -252,20 +312,20 @@ renderer.shadowMap.type=THREE.PCFShadowMap;
 const SKY='#9fd6f5';
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(SKY);
-scene.fog=new THREE.Fog(SKY,70,140);
-const camera=new THREE.PerspectiveCamera(32,9/16,1,220);
+scene.fog=new THREE.Fog(SKY,100,200);
+const camera=new THREE.PerspectiveCamera(40,9/16,1,260);
 
 const controls=new THREE.OrbitControls(camera,canvas);
 controls.enableDamping=true;controls.dampingFactor=.12;
 controls.screenSpacePanning=false;
 controls.panSpeed=.9;controls.rotateSpeed=.45;controls.zoomSpeed=.8;
-controls.minDistance=14;controls.maxDistance=56;
+controls.minDistance=14;controls.maxDistance=78;
 controls.minPolarAngle=.55;controls.maxPolarAngle=1.15;
 controls.minAzimuthAngle=.185;controls.maxAzimuthAngle=1.385;
 controls.touches={ONE:THREE.TOUCH.PAN,TWO:THREE.TOUCH.DOLLY_ROTATE};
 controls.mouseButtons={LEFT:THREE.MOUSE.PAN,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.ROTATE};
 (function(){
-  const r=36,phi=.95,th=.785;
+  const r=52,phi=.95,th=.785;
   camera.position.set(r*Math.sin(phi)*Math.sin(th),r*Math.cos(phi),r*Math.sin(phi)*Math.cos(th));
   controls.target.set(0,0,0);controls.update();
 })();
@@ -326,7 +386,7 @@ function mergeParts(parts){
 const bldMat=new THREE.MeshLambertMaterial({vertexColors:true});
 const ghostMat=new THREE.MeshLambertMaterial({vertexColors:true,transparent:true,opacity:.6,depthWrite:false});
 
-/* ====================== CONSTRUCTORES DE EDIFICIOS ====================== */
+
 const PAL={
   resWall:['#f8e0b0','#f4b6b0','#b9e0f5','#cfeaa8'],
   resRoof:['#d9534f','#a0522d','#6c7a89','#e08e45'],
@@ -473,45 +533,137 @@ function buildWater(){
   bx(a,.24,.04,.24,.34,.23,.32,'#2471a3');
   return mergeParts(a);
 }
-function buildPolice(){
-  const a=[];
-  slab(a,'#c9d1e8');
-  bx(a,.7,.42,.55,0,.05,0,'#e8eaf6');
-  bx(a,.74,.05,.6,0,.47,0,'#3f51b5');
-  bx(a,.09,.07,.07,-.07,.52,0,'#e53935');
-  bx(a,.09,.07,.07,.07,.52,0,'#1e88e5');
-  bx(a,.6,.1,.02,0,.3,.28,'#7986cb');
-  bx(a,.16,.2,.02,0,.05,.28,'#3f51b5');
-  bx(a,.14,.1,.02,-.22,.14,.28,'#90caf9');bx(a,.14,.1,.02,.22,.14,.28,'#90caf9');
-  cy(a,.015,.45,.3,.05,-.2,'#90a4ae');
-  bx(a,.14,.09,.01,.37,.4,-.2,'#e53935');
+
+/* ====================== SERVICIOS (1x1, 2x2, 3x3) ====================== */
+function buildPoliceS(s){
+  const a=[],W=.96*s;
+  bx(a,W,.05,W,0,0,0,'#c9d1e8');
+  const w=.62*s+.1,d=.5*s+.08,h=.34+.13*s,z0=-.06*s,zf=z0+d/2+.005;
+  bx(a,w,h,d,0,.05,z0,'#e8eaf6');
+  bx(a,w+.05,.05,d+.05,0,.05+h,z0,'#3f51b5');
+  windows(a,w,d,0,z0,.1,s,(h-.1)/s,'#90caf9');
+  bx(a,.16,.2,.02,0,.05,zf,'#3f51b5');
+  bx(a,.5*s,.08,.02,0,.05+h*.62,zf,'#7986cb');
+  bx(a,.09,.07,.07,-.07,.1+h,z0,'#e53935');
+  bx(a,.09,.07,.07,.07,.1+h,z0,'#1e88e5');
+  if(s>=2){
+    const tx=w/2-.12,tz=z0-d/2+.14;
+    bx(a,.24,h+.3,.24,tx,.05,tz,'#c5cae9');
+    bx(a,.28,.05,.28,tx,.05+h+.3,tz,'#3f51b5');
+    cy(a,.015,.5,-w/2+.1,.05,zf+.12,'#90a4ae');
+    bx(a,.16,.09,.01,-w/2+.18,.45,zf+.12,'#e53935');
+    bx(a,w*.8,.012,.03,0,.05,zf+.3,'#9fa8da');
+  }
+  if(s>=3){
+    const tx=-w/2+.12,tz=z0-d/2+.14;
+    bx(a,.24,h+.3,.24,tx,.05,tz,'#c5cae9');
+    bx(a,.28,.05,.28,tx,.05+h+.3,tz,'#3f51b5');
+    cy(a,.015,.45,tx,.05+h+.35,tz,'#90a4ae');
+    bx(a,.3,.1,.16,.3,.05,zf+.4,'#eceff1');
+    bx(a,.16,.07,.14,.3,.15,zf+.4,'#1e88e5');
+  }
   return mergeParts(a);
 }
+function buildFireS(s){
+  const a=[],W=.96*s;
+  bx(a,W,.05,W,0,0,0,'#e0d6d6');
+  const w=.66*s+.1,d=.5*s+.08,h=.3+.12*s,z0=-.06*s,zf=z0+d/2+.005;
+  bx(a,w,h,d,0,.05,z0,'#d32f2f');
+  bx(a,w+.05,.05,d+.05,0,.05+h,z0,'#5d4037');
+  const nb=s+1;
+  for(let k=0;k<nb;k++){
+    const x=(k-(nb-1)/2)*(w/nb),bw=w/nb*.74;
+    bx(a,bw,h*.68,.02,x,.05,zf,'#eceff1');
+    bx(a,bw,.03,.025,x,.05+h*.34,zf+.002,'#b0bec5');
+  }
+  const tx=w/2-.13,tz=z0-d/2+.15,th=h+.25+.08*s;
+  bx(a,.22+.03*s,th,.22+.03*s,tx,.05,tz,'#b71c1c');
+  bx(a,.26+.03*s,.05,.26+.03*s,tx,.05+th,tz,'#5d4037');
+  bx(a,.09,.06,.06,0,.1+h,z0,'#ffeb3b');
+  if(s>=2){
+    bx(a,.34,.14,.16,-w/2+.28,.05,zf+.24,'#e53935');
+    bx(a,.13,.1,.16,-w/2+.5,.05,zf+.24,'#eceff1');
+    bx(a,.34,.04,.04,-w/2+.28,.19,zf+.24,'#eceff1');
+  }
+  if(s>=3){
+    bx(a,.34,.14,.16,w/2-.5,.05,zf+.24,'#e53935');
+    bx(a,.13,.1,.16,w/2-.28,.05,zf+.24,'#eceff1');
+    cy(a,.015,.5,-w/2+.12,.05,zf+.1,'#90a4ae');
+    bx(a,.16,.09,.01,-w/2+.2,.45,zf+.1,'#ffffff');
+  }
+  return mergeParts(a);
+}
+function buildWasteS(s){
+  const a=[],W=.96*s,f=W/2-.03;
+  bx(a,W,.05,W,0,0,0,'#a39373');
+  bx(a,W,.14,.03,0,.05,-f,'#8d8068');
+  bx(a,.03,.14,W,-f,.05,0,'#8d8068');
+  bx(a,.03,.14,W,f,.05,0,'#8d8068');
+  bx(a,W*.32,.14,.03,-W*.34,.05,f,'#8d8068');
+  bx(a,W*.32,.14,.03,W*.34,.05,f,'#8d8068');
+  const hp=[[-.28,-.28,.3],[.22,-.3,.26],[0,-.06,.34],[-.3,.04,.22],[.3,0,.24],[-.08,-.38,.2],[.12,.2,.2],[-.22,.22,.16]];
+  const nh=s===1?3:s===2?5:8,cols=['#5d4e37','#7a6a4a','#4e6b3a','#6b5b43'];
+  for(let k=0;k<nh;k++){
+    const p=hp[k],r=(.14+.05*s)*(p[2]/.3),hh=p[2]*(.7+.3*s);
+    cn(a,r,hh,p[0]*W*.85,.05,p[1]*W*.85,cols[k%4]);
+  }
+  bx(a,.26+.06*s,.22,.2,-W*.3,.05,W*.32,'#78909c');
+  bx(a,.3+.06*s,.04,.24,-W*.3,.27,W*.32,'#546e7a');
+  const bc=['#2e9e4f','#3498db','#f1c40f','#e74c3c'];
+  for(let k=0;k<s+1;k++)bx(a,.09,.1,.09,W*.1+k*.13,.05,W*.34,bc[k]);
+  if(s>=2){bx(a,.3,.12,.16,W*.28,.05,W*.12,'#607d8b');bx(a,.12,.1,.16,W*.28+.2,.05,W*.12,'#eceff1');}
+  return mergeParts(a);
+}
+
+/* ====================== CACHÉ DE GEOMETRÍAS Y CARRETERAS ====================== */
 const GEO={};
-function geoFor(c){
-  const k=c.key+c.level+'_'+(c.variant|0);
+function geoFor(b){
+  const k=b.key+'_'+(b.level||1)+'_'+(b.variant|0)+'_'+(b.s||1);
   if(GEO[k])return GEO[k];
   let g;
-  switch(c.key){
-    case'res':g=buildRes(c.level,c.variant|0);break;
-    case'com':g=buildCom(c.level,c.variant|0);break;
-    case'ind':g=buildInd(c.level,c.variant|0);break;
-    case'park':g=buildPark(c.variant|0);break;
+  switch(b.key){
+    case'res':g=buildRes(b.level||1,b.variant|0);break;
+    case'com':g=buildCom(b.level||1,b.variant|0);break;
+    case'ind':g=buildInd(b.level||1,b.variant|0);break;
+    case'park':g=buildPark(b.variant|0);break;
     case'power':g=buildPower();break;
     case'water':g=buildWater();break;
-    default:g=buildPolice();
+    case'police':g=buildPoliceS(b.s||1);break;
+    case'fire':g=buildFireS(b.s||1);break;
+    default:g=buildWasteS(b.s||1);
   }
   GEO[k]=g;return g;
 }
-function roadGeo(mask){
-  const k='road'+mask;if(GEO[k])return GEO[k];
+/* segmento a lo largo de (dx,dz), desplazado 'off' en perpendicular */
+function seg(a,dx,dz,off,from,len,t,col,y){
+  const mid=from+len/2,px=-dz,pz=dx;
+  bx(a,dx?len:t,.012,dz?len:t,dx*mid+px*off,y,dz*mid+pz*off,col);
+}
+const DIRS=[[1,0,-1],[2,1,0],[4,0,1],[8,-1,0]];  /* bit, dx, dz */
+function roadGeo(mask,tier){
+  const k='road'+tier+mask;if(GEO[k])return GEO[k];
   const a=[];
-  bx(a,1,.07,1,0,0,0,'#4a4f5b');
-  bx(a,.14,.012,.14,0,.07,0,'#f5e6a3');
-  if(mask&1)bx(a,.08,.012,.5,0,.07,-.25,'#f5e6a3');else bx(a,1,.02,.06,0,.07,-.47,'#aab0b8');
-  if(mask&2)bx(a,.5,.012,.08,.25,.07,0,'#f5e6a3');else bx(a,.06,.02,1,.47,.07,0,'#aab0b8');
-  if(mask&4)bx(a,.08,.012,.5,0,.07,.25,'#f5e6a3');else bx(a,1,.02,.06,0,.07,.47,'#aab0b8');
-  if(mask&8)bx(a,.5,.012,.08,-.25,.07,0,'#f5e6a3');else bx(a,.06,.02,1,-.47,.07,0,'#aab0b8');
+  if(tier!=='avenue'){
+    bx(a,1,.07,1,0,0,0,'#4a4f5b');
+    bx(a,.14,.012,.14,0,.07,0,'#f5e6a3');
+    DIRS.forEach(function(d){
+      if(mask&d[0])seg(a,d[1],d[2],0,0,.5,.07,'#f5e6a3',.07);
+      else bx(a,d[2]?1:.06,.02,d[1]?1:.06,d[1]*.47,.07,d[2]*.47,'#aab0b8');
+    });
+  }else{
+    bx(a,1,.09,1,0,0,0,'#383d49');
+    bx(a,.2,.012,.2,0,.09,0,'#f2c94c');
+    DIRS.forEach(function(d){
+      if(mask&d[0]){
+        seg(a,d[1],d[2],-.025,0,.5,.03,'#f2c94c',.09);
+        seg(a,d[1],d[2],.025,0,.5,.03,'#f2c94c',.09);
+        [-.24,.24].forEach(function(o){
+          seg(a,d[1],d[2],o,.06,.13,.035,'#f5f5f5',.09);
+          seg(a,d[1],d[2],o,.3,.13,.035,'#f5f5f5',.09);
+        });
+      }else bx(a,d[2]?1:.1,.14,d[1]?1:.1,d[1]*.45,0,d[2]*.45,'#d0d4db');
+    });
+  }
   GEO[k]=mergeParts(a);return GEO[k];
 }
 
@@ -542,33 +694,32 @@ for(let k=0;k<6;k++){
   scene.add(m);clouds.push(m);
 }
 
+
 /* ====================== COBERTURA Y EFECTOS ====================== */
 const DISC_G=new THREE.CircleGeometry(1,48).rotateX(-Math.PI/2);
 const RINGT_G=new THREE.RingGeometry(.975,1,64).rotateX(-Math.PI/2);
 const RING_G=new THREE.RingGeometry(.88,1,40).rotateX(-Math.PI/2);
-const COVER_COL={power:'#ffd23f',water:'#3ba7ff',police:'#b36bff',park:'#4cd964'};
-const COVER_Y={power:.10,water:.11,police:.12};
-const COVER_R={power:R.power,water:R.water,police:R.police};
-const GHOST_R={power:R.power,water:R.water,police:R.police,park:R.park};
+const COVER_COL={power:'#ffd23f',water:'#3ba7ff',police:'#b36bff',fire:'#ff5a3c',waste:'#b58a4a',park:'#4cd964'};
+const COVER_Y={power:.10,water:.11,police:.12,fire:.13,waste:.14,park:.09};
 const COVER_MAT={};
 Object.keys(COVER_COL).forEach(function(k){
   COVER_MAT[k]={
-    disc:new THREE.MeshBasicMaterial({color:COVER_COL[k],transparent:true,opacity:.13,depthWrite:false}),
-    ring:new THREE.MeshBasicMaterial({color:COVER_COL[k],transparent:true,opacity:.7,depthWrite:false})
+    disc:new THREE.MeshBasicMaterial({color:COVER_COL[k],transparent:true,opacity:.10,depthWrite:false}),
+    ring:new THREE.MeshBasicMaterial({color:COVER_COL[k],transparent:true,opacity:.45,depthWrite:false})
   };
 });
 const coverGroup=new THREE.Group();scene.add(coverGroup);
-function addCover(c){
-  const r=COVER_R[c.key],y=COVER_Y[c.key];
-  const d=new THREE.Mesh(DISC_G,COVER_MAT[c.key].disc),rg=new THREE.Mesh(RINGT_G,COVER_MAT[c.key].ring);
-  [d,rg].forEach(function(m){m.position.set(cx(c.i),y,cz(c.j));m.scale.set(r,1,r);m.renderOrder=1;coverGroup.add(m);});
-  c.cover=[d,rg];
+function addCover(b){
+  const r=radiusOf(b),k=b.key;
+  const d=new THREE.Mesh(DISC_G,COVER_MAT[k].disc),rg=new THREE.Mesh(RINGT_G,COVER_MAT[k].ring);
+  [d,rg].forEach(function(m){m.position.set(b.px-HALF,COVER_Y[k],b.pz-HALF);m.scale.set(r,1,r);m.renderOrder=1;coverGroup.add(m);});
+  b.cover=[d,rg];
 }
 const fxList=[];
-function fxRing(i,j,color){
+function fxRing(x,z,color,size){
   const m=new THREE.Mesh(RING_G,new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:.9,depthWrite:false}));
-  m.position.set(cx(i),.14,cz(j));m.scale.setScalar(.3);m.renderOrder=3;
-  scene.add(m);fxList.push({m:m,t:0});
+  m.position.set(x,.14,z);m.scale.setScalar(.3);m.renderOrder=3;
+  scene.add(m);fxList.push({m:m,t:0,sz:size||1});
 }
 const anims=[];
 function addPop(m){m.scale.setScalar(.001);anims.push({m:m,t:0});}
@@ -584,193 +735,390 @@ function mkIcon(emoji,bg){
   x.textAlign='center';x.textBaseline='middle';x.fillText(emoji,48,52);
   return new THREE.CanvasTexture(c);
 }
-const ICON_MAT={
-  power:new THREE.SpriteMaterial({map:mkIcon('⚡','#c58f00'),depthTest:false,transparent:true}),
-  water:new THREE.SpriteMaterial({map:mkIcon('💧','#1565c0'),depthTest:false,transparent:true}),
-  road:new THREE.SpriteMaterial({map:mkIcon('🚧','#e65100'),depthTest:false,transparent:true})
-};
+const ICON_MAT={};
+[['road','🚧','#e65100'],['power','⚡','#c58f00'],['water','💧','#1565c0'],['trash','🗑️','#5d6d3b'],
+ ['noise','🔊','#6a1b9a'],['fire','🔥','#c62828'],['theft','🚨','#37474f']].forEach(function(r){
+  ICON_MAT[r[0]]=new THREE.SpriteMaterial({map:mkIcon(r[1],r[2]),depthTest:false,transparent:true});
+});
+
+/* Llamas low-poly para incendios */
+const FLAME_G=new THREE.CylinderGeometry(0,.17,.55,6).translate(0,.275,0);
+const FLAME_M=[new THREE.MeshBasicMaterial({color:'#ff6a1a'}),new THREE.MeshBasicMaterial({color:'#ffd23f'})];
+function makeFlames(b){
+  const g=new THREE.Group();
+  [[-.22,-.12,0,1],[.2,.12,1,.85],[0,.22,0,.7],[.1,-.2,1,.6]].forEach(function(p,k){
+    const m=new THREE.Mesh(FLAME_G,FLAME_M[p[2]]);
+    m.position.set(p[0]*b.s,0,p[1]*b.s);
+    m.scale.setScalar(p[3]*(.8+.25*b.s));
+    m.userData.ph=k*1.7;m.userData.s0=m.scale.x;
+    g.add(m);
+  });
+  g.position.set(b.px-HALF,topY(b)-.15,b.pz-HALF);
+  scene.add(g);return g;
+}
+
+/* Sonidos nuevos */
+SFX.alarm=function(){tone(880,.12,'square',.05);tone(660,.12,'square',.05,null,.14);tone(880,.12,'square',.05,null,.28);tone(660,.12,'square',.05,null,.42);};
+SFX.theft=function(){tone(300,.12,'sawtooth',.05,200);tone(240,.2,'sawtooth',.05,160,.12);};
+SFX.extinguish=function(){noise(.4,.12);tone(500,.25,'sine',.04,900);};
 
 /* Vista previa (ghost) */
-const ghost=new THREE.Mesh(roadGeo(0),ghostMat);ghost.visible=false;ghost.renderOrder=2;scene.add(ghost);
-const tile=new THREE.Mesh(new THREE.PlaneGeometry(.96,.96).rotateX(-Math.PI/2),
+const ghost=new THREE.Mesh(roadGeo(0,'basic'),ghostMat);ghost.visible=false;ghost.renderOrder=2;scene.add(ghost);
+const tile=new THREE.Mesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),
   new THREE.MeshBasicMaterial({color:'#4cff7a',transparent:true,opacity:.5,depthWrite:false}));
 tile.visible=false;tile.renderOrder=2;scene.add(tile);
+function showTile(i,j,s,color){
+  tile.position.set(i+s/2-HALF,.13,j+s/2-HALF);
+  tile.scale.set(s*.96,1,s*.96);
+  tile.material.color.set(color);tile.visible=true;
+}
 const gDisc=new THREE.Mesh(DISC_G,new THREE.MeshBasicMaterial({color:'#fff',transparent:true,opacity:.2,depthWrite:false}));
 const gRing=new THREE.Mesh(RINGT_G,new THREE.MeshBasicMaterial({color:'#fff',transparent:true,opacity:.85,depthWrite:false}));
 [gDisc,gRing].forEach(function(m){m.visible=false;m.position.y=.135;m.renderOrder=2;scene.add(m);});
 
-/* ====================== LÓGICA DE CELDAS ====================== */
-const isRoad=(i,j)=>inb(i,j)&&grid[i][j]&&grid[i][j].key==='road';
-const roadAdj=(i,j)=>isRoad(i,j-1)||isRoad(i+1,j)||isRoad(i,j+1)||isRoad(i-1,j);
-function roadMaskAt(i,j){return (isRoad(i,j-1)?1:0)|(isRoad(i+1,j)?2:0)|(isRoad(i,j+1)?4:0)|(isRoad(i-1,j)?8:0);}
+/* ====================== EDIFICIOS Y CARRETERAS ====================== */
+const bsList=function(){
+  const out=[];
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){const b=grid[i][j];if(b&&b.i===i&&b.j===j)out.push(b);}
+  return out;
+};
+const isRoad=(i,j)=>inb(i,j)&&!!grid[i][j]&&grid[i][j].key==='road';
+const roadMaskAt=(i,j)=>(isRoad(i,j-1)?1:0)|(isRoad(i+1,j)?2:0)|(isRoad(i,j+1)?4:0)|(isRoad(i-1,j)?8:0);
+function adjRoads(b){
+  const out=[],seen=new Set();
+  for(let a=b.i;a<b.i+b.s;a++)for(let c=b.j;c<b.j+b.s;c++){
+    [[a+1,c],[a-1,c],[a,c+1],[a,c-1]].forEach(function(p){
+      if(p[0]>=b.i&&p[0]<b.i+b.s&&p[1]>=b.j&&p[1]<b.j+b.s)return;
+      if(isRoad(p[0],p[1])){const r=grid[p[0]][p[1]];if(!seen.has(r)){seen.add(r);out.push(r);}}
+    });
+  }
+  return out;
+}
+function roadNbrs(r){
+  const out=[];
+  [[r.i+1,r.j],[r.i-1,r.j],[r.i,r.j+1],[r.i,r.j-1]].forEach(function(p){if(isRoad(p[0],p[1]))out.push(grid[p[0]][p[1]]);});
+  return out;
+}
 function updateRoadsAround(i,j){
   [[i,j],[i+1,j],[i-1,j],[i,j+1],[i,j-1]].forEach(function(p){
-    if(isRoad(p[0],p[1]))grid[p[0]][p[1]].mesh.geometry=roadGeo(roadMaskAt(p[0],p[1]));
+    if(isRoad(p[0],p[1])){const r=grid[p[0]][p[1]];r.mesh.geometry=roadGeo(roadMaskAt(p[0],p[1]),r.tier);}
   });
 }
-function hasService(i,j,key,r){
-  for(let a=0;a<N;a++)for(let b=0;b<N;b++){
-    const c=grid[a][b];
-    if(c&&c.key===key){const dx=a-i,dz=b-j;if(dx*dx+dz*dz<=r*r)return true;}
-  }
-  return false;
-}
-function buildMesh(c,pop){
-  if(c.mesh)scene.remove(c.mesh);
-  const geo=c.key==='road'?roadGeo(roadMaskAt(c.i,c.j)):geoFor(c);
+function buildMesh(b,pop){
+  if(b.mesh)scene.remove(b.mesh);
+  const geo=b.key==='road'?roadGeo(roadMaskAt(b.i,b.j),b.tier):geoFor(b);
   const m=new THREE.Mesh(geo,bldMat);
-  m.position.set(cx(c.i),0,cz(c.j));
-  m.castShadow=c.key!=='road';
-  scene.add(m);c.mesh=m;
+  m.position.set(b.px-HALF,0,b.pz-HALF);
+  m.castShadow=b.key!=='road';
+  scene.add(m);b.mesh=m;
   if(pop)addPop(m);
-  if(c.icon&&HGT[c.key])c.icon.position.y=HGT[c.key][c.level-1]+.5;
 }
-function placeBuilding(i,j,key,o){
+function placeBuilding(key,i,j,o){
   o=o||{};
-  const T=TOOLS[key];
-  const c={i:i,j:j,key:key,level:o.level||1,growth:o.growth||0,
-    invested:o.invested!=null?o.invested:T.cost,
+  const s=o.size||1,tier=o.tier||'basic';
+  const b={key:key,i:i,j:j,s:s,px:i+s/2,pz:j+s/2,level:o.level||1,growth:o.growth||0,
+    tier:key==='road'?tier:'basic',
     variant:o.variant!=null?o.variant:((Math.random()*4)|0),
-    mesh:null,icon:null,prob:undefined,cover:null,hasRoad:true,hasPower:true,hasWater:true,active:true};
-  grid[i][j]=c;
-  buildMesh(c,!o.instant);
+    invested:0,trash:o.trash||0,fire:o.fire||0,theft:o.theft||0,
+    mesh:null,icon:null,prob:null,cover:null,flames:null,
+    hasRoad:true,hasPower:true,hasWater:true,active:true,adj:[],rtier:0,
+    cov:{police:false,fire:false,waste:false,park:false},noise:0,happy:60,income:0,traffic:0,cong:0,load:0};
+  b.invested=o.invested!=null?o.invested:costOf(key,key==='road'?tier:s);
+  for(let a=i;a<i+s;a++)for(let c=j;c<j+s;c++)grid[a][c]=b;
+  buildMesh(b,!o.instant);
   if(key==='road')updateRoadsAround(i,j);
-  if(COVER_R[key])addCover(c);
-  if(!o.instant)fxRing(i,j,'#ffffff');
-  return c;
+  if(radiusOf(b)>0)addCover(b);
+  if(!o.instant)fxRing(b.px-HALF,b.pz-HALF,'#ffffff',s);
+  ALL=bsList();
+  return b;
 }
-function removeCell(i,j){
-  const c=grid[i][j];if(!c)return null;
-  scene.remove(c.mesh);
-  if(c.icon)scene.remove(c.icon);
-  if(c.cover)c.cover.forEach(function(o){coverGroup.remove(o);});
-  grid[i][j]=null;
-  if(c.key==='road')updateRoadsAround(i,j);
-  return c;
+function removeBuilding(b){
+  if(b.mesh)scene.remove(b.mesh);
+  if(b.icon)scene.remove(b.icon);
+  if(b.flames)scene.remove(b.flames);
+  if(b.cover)b.cover.forEach(function(o){coverGroup.remove(o);});
+  for(let a=b.i;a<b.i+b.s;a++)for(let c=b.j;c<b.j+b.s;c++)grid[a][c]=null;
+  if(b.key==='road')updateRoadsAround(b.i,b.j);
+  ALL=bsList();
 }
-function levelUp(c){
-  c.level++;c.growth=0;c.invested=c.invested;
-  buildMesh(c,true);
-  fxRing(c.i,c.j,'#ffe066');
+function levelUp(b){
+  b.level++;b.growth=0;
+  buildMesh(b,true);
+  fxRing(b.px-HALF,b.pz-HALF,'#ffe066',b.s);
 }
-function refreshIcons(){
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-    const c=grid[i][j];
-    if(!c||!TOOLS[c.key].zone)continue;
-    const p=!c.hasRoad?'road':!c.hasPower?'power':!c.hasWater?'water':null;
-    if(p===c.prob)continue;
-    if(c.icon){scene.remove(c.icon);c.icon=null;}
-    c.prob=p;
-    if(p){
-      const s=new THREE.Sprite(ICON_MAT[p]);
-      s.scale.set(.62,.62,1);
-      s.position.set(cx(c.i),HGT[c.key][c.level-1]+.5,cz(c.j));
-      s.renderOrder=10;scene.add(s);c.icon=s;
-    }
-  }
+const fpOf=(i,j,s)=>({i:clamp(i-((s-1)>>1),0,N-s),j:clamp(j-((s-1)>>1),0,N-s),s:s});
+function isFree(fp){
+  for(let a=fp.i;a<fp.i+fp.s;a++)for(let c=fp.j;c<fp.j+fp.s;c++)if(!inb(a,c)||grid[a][c])return false;
+  return true;
+}
+function svcNear(kind,px,pz,r){
+  return ALL.some(function(b){
+    if(b.key!==kind||!b.hasRoad)return false;
+    const dx=b.px-px,dz=b.pz-pz;return dx*dx+dz*dz<=r*r;
+  });
 }
 
-/* ====================== ECONOMÍA Y SIMULACIÓN ====================== */
+/* ====================== SIMULACIÓN ====================== */
 function recalc(){
-  const pw=[],wt=[],po=[],pk=[],zs=[],ress=[],inds=[];
+  ALL=bsList();
+  const roads=[],zones=[],ress=[],inds=[],pw=[],wt=[],po=[],fi=[],ws=[],pk=[];
   let upkeep=0;
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-    const c=grid[i][j];if(!c)continue;
-    upkeep+=TOOLS[c.key].upkeep||0;
-    switch(c.key){
-      case'power':pw.push(c);break;
-      case'water':wt.push(c);break;
-      case'police':po.push(c);break;
-      case'park':pk.push(c);break;
-      case'res':ress.push(c);zs.push(c);break;
-      case'com':zs.push(c);break;
-      case'ind':inds.push(c);zs.push(c);break;
+  for(const b of ALL){
+    upkeep+=upkeepOf(b);
+    if(b.key==='road'){roads.push(b);continue;}
+    b.adj=adjRoads(b);
+    b.hasRoad=b.adj.length>0;
+    b.rtier=0;
+    for(const r of b.adj)b.rtier=Math.max(b.rtier,r.tier==='avenue'?2:1);
+    if(TOOLS[b.key].zone){
+      zones.push(b);
+      if(b.key==='res')ress.push(b);else if(b.key==='ind')inds.push(b);
+      continue;
     }
+    b.active=b.hasRoad;
+    if(!b.hasRoad){b.load=0;continue;}
+    if(b.key==='power')pw.push(b);else if(b.key==='water')wt.push(b);
+    else if(b.key==='police')po.push(b);else if(b.key==='fire')fi.push(b);
+    else if(b.key==='waste')ws.push(b);else if(b.key==='park')pk.push(b);
   }
-  const near=function(list,c,r){return list.some(function(s){const dx=s.i-c.i,dz=s.j-c.j;return dx*dx+dz*dz<=r*r;});};
-  let pc=0,wc=0,popCap=0,comJ=0,indJ=0,comInc=0,indInc=0;
-  for(const c of zs){
-    c.hasRoad=roadAdj(c.i,c.j);
-    c.hasPower=near(pw,c,R.power);
-    c.hasWater=near(wt,c,R.water);
-    c.active=c.hasRoad&&c.hasPower&&c.hasWater;
-    const L=c.level-1;
-    if(c.hasPower)pc+=CONS_P[c.key][L];
-    if(c.hasWater)wc+=CONS_W[c.key][L];
+  const d2=(a,b)=>{const dx=a.px-b.px,dz=a.pz-b.pz;return dx*dx+dz*dz;};
+  const near=(list,b,r)=>list.some(s=>d2(s,b)<=r*r);
+
+  /* energía y agua */
+  let pc=0,wc=0;
+  for(const z of zones){
+    z.hasPower=near(pw,z,R.power);z.hasWater=near(wt,z,R.water);
+    z.active=z.hasRoad&&z.hasPower&&z.hasWater;
+    if(z.hasPower)pc+=CONS_P[z.key][z.level-1];
+    if(z.hasWater)wc+=CONS_W[z.key][z.level-1];
   }
   S.powerProd=pw.length*CAP.power;S.waterProd=wt.length*CAP.water;
   S.powerCons=pc;S.waterCons=wc;
   S.pr=pc>0?Math.min(1,S.powerProd/pc):1;
   S.wr=wc>0?Math.min(1,S.waterProd/wc):1;
-  for(const c of zs){
-    if(!c.active)continue;
-    const L=c.level-1;
-    if(c.key==='res')popCap+=POPCAP[L];
-    else if(c.key==='com'){comJ+=JOBS.com[L];comInc+=INC.com[L];}
-    else{indJ+=JOBS.ind[L];indInc+=INC.ind[L];}
+
+  /* servicios con capacidad: policía, bomberos, residuos */
+  const byLvl=zones.slice().sort((x,y)=>y.level-x.level);
+  const assign=function(list,kind){
+    const cap=list.map(s=>SV[kind].cap[s.s-1]);
+    for(const z of byLvl){
+      z.cov[kind]=false;
+      let best=-1,bd=1e9;
+      for(let k=0;k<list.length;k++){
+        const r=SV[kind].r[list[k].s-1],d=d2(list[k],z);
+        if(d<=r*r&&d<bd&&cap[k]>=z.level){bd=d;best=k;}
+      }
+      if(best>=0){cap[best]-=z.level;z.cov[kind]=true;}
+    }
+    list.forEach(function(s,k){s.load=SV[kind].cap[s.s-1]-cap[k];});
+  };
+  assign(po,'police');assign(fi,'fire');assign(ws,'waste');
+  for(const z of zones)z.cov.park=near(pk,z,R.park);
+
+  /* tráfico: viajes de zonas activas repartidos por sus carreteras y difundidos */
+  for(const r of roads)r.t0=0;
+  for(const z of zones){
+    if(!z.active||!z.adj.length)continue;
+    const t=TRIPS[z.key][z.level-1]/z.adj.length;
+    for(const r of z.adj)r.t0+=t;
+  }
+  for(let pass=0;pass<2;pass++){
+    for(const r of roads){const nb=roadNbrs(r);r.t1=r.t0+(nb.length?.5*nb.reduce((s,n)=>s+n.t0,0)/nb.length:0);}
+    for(const r of roads)r.t0=r.t1;
+  }
+  for(const r of roads){r.traffic=r.t0;r.cong=r.t0/ROADS[r.tier].cap;}
+
+  /* contaminación acústica: industrias y avenidas con mucho tráfico */
+  const src=[];
+  for(const b of inds)if(b.active)src.push({x:b.px,z:b.pz,s:[.7,1.1,1.6][b.level-1],r:3.5});
+  for(const r of roads){
+    if(r.tier==='avenue'&&r.cong>=.3)src.push({x:r.px,z:r.pz,s:.5+Math.min(r.cong,1.5)*.6,r:2.2});
+    else if(r.tier==='basic'&&r.cong>1.2)src.push({x:r.px,z:r.pz,s:.3,r:1.6});
+  }
+  for(const z of zones){
+    z.noise=0;
+    if(z.key!=='res')continue;
+    let n=0;
+    for(const q of src){const dx=q.x-z.px,dz=q.z-z.pz,d=Math.sqrt(dx*dx+dz*dz);if(d<q.r)n+=q.s*(1-d/q.r);}
+    z.noise=Math.min(3,n);
+  }
+
+  /* felicidad, empleo y población */
+  let hw=0,hs=0,capAct=0,comJ=0,indJ=0,nf=0,nt=0;
+  for(const z of zones){
+    const L=z.level-1;
+    if(z.fire)nf++;
+    if(z.theft)nt++;
+    if(z.key==='res'){
+      const h=58+(z.cov.park?14:0)+(z.cov.police?9:0)+(z.cov.fire?4:0)-z.noise*8-z.trash*.2
+        -(z.hasRoad?0:8)-(z.hasPower?0:10)-(z.hasWater?0:10)-(z.fire?22:0)-(z.theft?14:0);
+      z.happy=clamp(h,0,100);
+      hs+=z.happy*POPCAP[L];hw+=POPCAP[L];
+      if(z.active)capAct+=POPCAP[L];
+    }else if(z.active){
+      if(z.key==='com')comJ+=JOBS.com[L];else indJ+=JOBS.ind[L];
+    }
   }
   const jobs=comJ+indJ,pop=S.pop;
-  /* felicidad */
-  let hp=58;
-  if(ress.length){
-    let pkF=0,poF=0,pol=0,inact=0;
-    for(const c of ress){
-      if(near(pk,c,R.park))pkF++;
-      if(near(po,c,R.police))poF++;
-      if(near(inds,c,R.pollution))pol++;
-      if(!c.active)inact++;
-    }
-    const n=ress.length;
-    hp+=pkF/n*18+poF/n*12-pol/n*18-inact/n*12;
-  }
+  S.fires=nf;S.thefts=nt;
+  let hp=hw>0?hs/hw:60;
+  hp-=Math.min(25,nf*6)+Math.min(20,nt*4);
   hp-=(1-S.pr)*20+(1-S.wr)*20;
   if(pop>0)hp-=Math.max(0,(pop-jobs)/pop)*12;
+  if(S.money<0)hp-=8;
   S.happy=Math.round(clamp(hp,0,100));
-  S.popTarget=Math.round(popCap*(.6+.4*S.happy/100));
+  S.popTarget=Math.round(capAct*(.6+.4*S.happy/100));
+
   /* demanda RCI */
-  S.dR=clamp((jobs+24-pop)/(jobs*.8+40),-1,1);
+  S.dR=clamp((jobs+20-pop)/(jobs*.8+40),-1,1);
   S.dC=clamp((pop*.4+6-comJ)/(pop*.3+20),-1,1);
   S.dI=clamp((pop*.45+8-indJ)/(pop*.3+20)-(S.happy<40?.2:0),-1,1);
-  /* ingresos */
-  const employed=Math.min(pop,jobs),hf=.6+.4*S.happy/100;
-  const resTax=(employed+(pop-employed)*.4)*1.4*hf;
+
+  /* ingresos por edificio (los incidentes los hunden) */
+  const employed=Math.min(pop,jobs),hf=.5+.5*S.happy/100;
+  const resTax=(employed*1.9+(pop-employed)*.7)*hf;
   const cf=.4+.6*Math.min(1,pop/(comJ*1.5+1));
   const lf=jobs>0?Math.min(1,pop/jobs):1;
-  const inc=(resTax+comInc*cf+indInc*(.4+.6*lf))*S.pr*S.wr;
+  let inc=0;
+  for(const z of zones){
+    const L=z.level-1;let base=0;
+    if(z.active){
+      if(z.key==='res')base=capAct>0?resTax*POPCAP[L]/capAct:0;
+      else if(z.key==='com')base=INC.com[L]*cf;
+      else base=INC.ind[L]*(.4+.6*lf);
+    }
+    let mult=1;
+    if(z.theft)mult=0;else if(z.fire)mult=.1;
+    if(z.trash>80)mult*=.75;
+    if(z.adj.some(r=>r.cong>1.4))mult*=.85;
+    z.income=base*mult*S.pr*S.wr;
+    inc+=z.income;
+  }
   S.income=inc;S.upkeep=upkeep;S.net=inc-upkeep;
-  refreshIcons();
-  updateHUD();
+  refreshIcons();refreshCovers();updateHUD();
+}
+function refreshCovers(){
+  for(const b of ALL)if(b.cover)b.cover.forEach(function(m){m.visible=b.hasRoad;});
+}
+function refreshIcons(){
+  for(const b of ALL){
+    if(b.key==='road')continue;
+    const z=!!TOOLS[b.key].zone;
+    const p=b.fire?'fire':b.theft?'theft':!b.hasRoad?'road':(z&&!b.hasPower)?'power':(z&&!b.hasWater)?'water'
+      :(z&&b.trash>=60)?'trash':(b.key==='res'&&b.noise>=1.5)?'noise':null;
+    if(p!==b.prob){
+      if(b.icon){scene.remove(b.icon);b.icon=null;}
+      b.prob=p;
+      if(p){
+        const sp=new THREE.Sprite(ICON_MAT[p]),k=.62+.1*(b.s-1);
+        sp.scale.set(k,k,1);sp.position.set(b.px-HALF,topY(b)+.5,b.pz-HALF);
+        sp.renderOrder=10;scene.add(sp);b.icon=sp;
+      }
+    }
+    if(b.fire&&!b.flames)b.flames=makeFlames(b);
+    else if(!b.fire&&b.flames){scene.remove(b.flames);b.flames=null;}
+    else if(b.flames)b.flames.position.y=topY(b)-.15;
+  }
 }
 
+/* ====================== INCIDENTES ====================== */
+const fireCost=z=>80+60*z.level;
+const theftCost=z=>60+40*z.level;
+function startFire(z){
+  z.fire=1;
+  fxRing(z.px-HALF,z.pz-HALF,'#ff5a3c',z.s);
+  toast('🔥 ¡Incendio en '+nameOf(z)+'!');SFX.alarm();
+}
+function startTheft(z){
+  z.theft=1;
+  const loss=Math.min(Math.max(S.money,0),Math.round(15*z.level));
+  S.money-=loss;
+  toast('🚨 ¡Robo en '+nameOf(z)+'! −$'+loss);SFX.theft();
+}
+function extinguish(z,byPlayer){
+  z.fire=0;fxRing(z.px-HALF,z.pz-HALF,'#4aa8ff',z.s);SFX.extinguish();
+  toast(byPlayer?'🧯 Incendio sofocado':'🚒 Los bomberos apagaron el incendio');
+}
+function resolveTheft(z,byPlayer){
+  z.theft=0;SFX.coin();
+  toast(byPlayer?'🛡️ Seguridad contratada: robo resuelto':'🚓 La policía resolvió el robo');
+}
+function burnDown(z){
+  toast('💥 '+nameOf(z)+' ha ardido por completo');
+  fxRing(z.px-HALF,z.pz-HALF,'#ff5a3c',z.s);
+  removeBuilding(z);SFX.demolish();
+}
+function rollIncidents(){
+  const zs=ALL.filter(b=>TOOLS[b.key].zone);
+  if(S.day<12||zs.length<4)return;
+  let act=zs.filter(b=>b.fire||b.theft).length;
+  const maxAct=Math.max(1,Math.floor(zs.length/6));
+  for(const z of zs){
+    if(act>=maxAct)break;
+    if(z.fire||z.theft)continue;
+    let pf=.0018*({res:.8,com:1,ind:1.6}[z.key])*(z.cov.fire?1:4)*(z.trash>70?1.5:1)*(1+(z.level-1)*.15);
+    if(zs.some(o=>o.fire&&(o.px-z.px)*(o.px-z.px)+(o.pz-z.pz)*(o.pz-z.pz)<=6.25))pf*=2.5;
+    const pt=.0022*({res:1,com:1.5,ind:.6}[z.key])*(z.cov.police?1:2.5)*(S.happy<40?1.8:1);
+    const r=Math.random();
+    if(r<pf){startFire(z);act++;}
+    else if(r<pf+pt){startTheft(z);act++;}
+  }
+}
+
+/* ====================== BUCLE DE DÍAS ====================== */
 function dayTick(){
   S.day++;
   recalc();
-  S.money+=S.net;
-  S.money=Math.round(S.money*10)/10;
+  S.money+=S.net;S.money=Math.round(S.money*10)/10;
   floatMoney(S.net);
   if(S.net>=0)SFX.coin();
-  /* población */
-  const tgt=S.popTarget;let p=S.pop;
-  if(p<tgt)p=Math.min(tgt,p+Math.max(2,(tgt-p)*.3));
-  else if(p>tgt)p=Math.max(tgt,p-Math.max(3,(p-tgt)*.5));
-  S.pop=Math.round(p);
-  /* crecimiento automático de zonas */
-  const dem={res:S.dR,com:S.dC,ind:S.dI};
-  let grew=false;
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-    const c=grid[i][j];
-    if(!c||!TOOLS[c.key].zone||c.level>=3||!c.active)continue;
-    const d=dem[c.key];
-    if(d>.02){
-      if(Math.random()<.6+.4*Math.min(1,d))c.growth++;
-      if(c.growth>=GROW[c.level-1]){levelUp(c);grew=true;}
+  const zs=ALL.filter(b=>TOOLS[b.key].zone);
+  /* basura */
+  for(const z of zs){
+    if(z.cov.waste)z.trash=Math.max(0,z.trash-18);
+    else z.trash=Math.min(100,z.trash+TRASH_GEN[z.level-1]);
+  }
+  /* evolución de incidentes */
+  for(const z of zs){
+    if(z.fire){
+      if(z.cov.fire)extinguish(z,false);
+      else{z.fire++;if(z.fire>6)burnDown(z);}
+    }else if(z.theft){
+      if(z.cov.police)resolveTheft(z,false);
+      else{
+        z.theft++;
+        if(z.theft>5){
+          z.theft=0;
+          const loss=Math.min(Math.max(S.money,0),25*z.level);S.money-=loss;
+          toast('🚨 Los ladrones se fueron con $'+loss+' más');
+        }
+      }
     }
   }
+  /* población (lenta) */
+  const tgt=S.popTarget;let p=S.pop;
+  if(p<tgt)p=Math.min(tgt,p+Math.max(1,(tgt-p)*.15));
+  else if(p>tgt)p=Math.max(tgt,p-Math.max(2,(p-tgt)*.4));
+  S.pop=Math.round(p);
+  /* crecimiento lento: requiere días seguidos de demanda estable */
+  const dem={res:S.dR,com:S.dC,ind:S.dI};
+  let grew=false;
+  for(const z of zs){
+    if(grid[z.i][z.j]!==z)continue;
+    const maxL=z.rtier>=2?3:2;
+    if(z.level>=maxL)continue;
+    const d=dem[z.key];
+    const ok=z.active&&!z.fire&&!z.theft&&d>.08&&S.happy>=40&&z.trash<60&&z.adj.every(r=>r.cong<1.5);
+    if(ok){z.growth++;if(z.growth>=GROW[z.level-1]){levelUp(z);grew=true;}}
+    else if(d<=0)z.growth=Math.max(0,z.growth-2);
+    else z.growth=Math.max(0,z.growth-1);
+  }
   if(grew)SFX.levelup();
+  rollIncidents();
   while(S.ms<MILESTONES.length&&S.pop>=MILESTONES[S.ms]){
     toast('🎉 ¡'+fmt(MILESTONES[S.ms])+' habitantes!');SFX.fanfare();S.ms++;
   }
-  if(S.money<0&&S.net<0)toast('⚠️ Déficit: tus gastos superan los ingresos');
+  if(S.money<0&&S.net<0)toast('⚠️ Deuda: los gastos superan a los ingresos');
   recalc();
   updateBar();
   save();
@@ -779,52 +1127,43 @@ function dayTick(){
 /* ====================== GUARDADO ====================== */
 function save(){
   try{
-    const cells=[];
-    for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-      const c=grid[i][j];if(c)cells.push([i,j,c.key,c.level,c.growth,c.invested,c.variant]);
-    }
-    localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,money:S.money,day:S.day,pop:S.pop,ms:S.ms,cells:cells}));
+    const cells=ALL.map(b=>[b.key,b.i,b.j,b.s,b.level,b.growth,b.invested,b.variant,b.tier,Math.round(b.trash),b.fire,b.theft]);
+    localStorage.setItem(SAVE_KEY,JSON.stringify({v:2,money:S.money,day:S.day,pop:S.pop,ms:S.ms,cells:cells}));
   }catch(e){}
 }
 function load(){
   try{
     const raw=localStorage.getItem(SAVE_KEY);if(!raw)return false;
     const d=JSON.parse(raw);
-    if(!d||d.v!==1||!Array.isArray(d.cells))return false;
+    if(!d||d.v!==2||!Array.isArray(d.cells))return false;
     S.money=d.money;S.day=d.day;S.pop=d.pop||0;S.ms=d.ms||0;
     d.cells.forEach(function(r){
-      if(inb(r[0],r[1])&&TOOLS[r[2]])
-        placeBuilding(r[0],r[1],r[2],{level:r[3],growth:r[4],invested:r[5],variant:r[6],instant:true});
+      const key=r[0],i=r[1],j=r[2],s=r[3];
+      if(!TOOLS[key]||!inb(i,j)||!inb(i+s-1,j+s-1))return;
+      if(!isFree({i:i,j:j,s:s}))return;
+      placeBuilding(key,i,j,{size:s,level:r[4],growth:r[5],invested:r[6],variant:r[7],tier:r[8],trash:r[9],fire:r[10],theft:r[11],instant:true});
     });
-    for(let i=0;i<N;i++)for(let j=0;j<N;j++)if(isRoad(i,j))grid[i][j].mesh.geometry=roadGeo(roadMaskAt(i,j));
+    for(const b of bsList())if(b.key==='road')b.mesh.geometry=roadGeo(roadMaskAt(b.i,b.j),b.tier);
     return true;
   }catch(e){return false;}
 }
-function starter(){
-  for(let x=4;x<=11;x++)placeBuilding(x,8,'road',{instant:true});
-  placeBuilding(7,5,'power',{instant:true});
-  placeBuilding(9,5,'water',{instant:true});
-  [[6,9],[7,9],[6,7]].forEach(function(p){placeBuilding(p[0],p[1],'res',{instant:true});});
-  placeBuilding(9,9,'com',{instant:true});
-  placeBuilding(11,7,'ind',{instant:true});
-  S.money=6000-(8*10+800+500+300+150+200)+0;
-  S.money=6000;
-}
 function resetCity(){
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++)removeCell(i,j);
-  Object.assign(S,{money:6000,day:1,pop:0,popTarget:0,happy:60,ms:0});
-  starter();
+  for(const b of bsList())removeBuilding(b);
+  Object.assign(S,{money:START_MONEY,day:1,pop:0,popTarget:0,happy:60,ms:0,fires:0,thefts:0,income:0,upkeep:0,net:0});
   tool=null;sel=null;
   recalc();refreshSel();refreshCats();save();
 }
 
-/* ====================== UI ====================== */
-let tool=null,sel=null,toastT=null;
-const ib=$('ibIco')&&$('infobar');
+/* ====================== INTERFAZ ====================== */
+let tool=null,curSize=1,curRoad='basic',sel=null,toastT=null;
+const sizeOfTool=()=>SV[tool]?curSize:1;
+const costNow=()=>costOf(tool,tool==='road'?curRoad:curSize);
+const minCost=k=>SV[k]?SV[k].cost[0]:TOOLS[k].cost;
+const toolRadius=(k,s)=>k==='power'?R.power:k==='water'?R.water:k==='park'?R.park:SV[k]?SV[k].r[s-1]:0;
 
 function toast(msg){
   const t=$('toast');t.textContent=msg;t.classList.add('show');
-  clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('show');},1900);
+  clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('show');},2200);
 }
 function floatMoney(n){
   const e=document.createElement('div');
@@ -843,20 +1182,21 @@ function updateHUD(){
   const h=S.happy;
   $('iHap').textContent=h>=75?'😄':h>=55?'🙂':h>=35?'😐':'😟';
   $('vHap').textContent=h+'%';
-  $('vMoney').textContent='$'+fmt(S.money);
+  $('vMoney').textContent=(S.money<0?'-$':'$')+fmt(Math.abs(S.money));
   $('vPow').textContent=Math.round(S.powerCons)+'/'+S.powerProd;
   $('vWat').textContent=Math.round(S.waterCons)+'/'+S.waterProd;
   $('chPow').classList.toggle('bad',S.powerCons>S.powerProd);
   $('chWat').classList.toggle('bad',S.waterCons>S.waterProd);
   $('chMoney').classList.toggle('bad',S.money<0);
   $('vDay').textContent=S.day;
-  const net=Math.round(S.net);
-  const vn=$('vNet');vn.textContent=(net>=0?'+':'−')+'$'+Math.abs(net)+'/día';vn.className=net>=0?'up':'dn';
+  const net=Math.round(S.net),vn=$('vNet');
+  vn.textContent=(net>=0?'+':'−')+'$'+Math.abs(net)+'/día';vn.className=net>=0?'up':'dn';
+  $('vAlert').textContent=(S.fires?'🔥'+S.fires+' ':'')+(S.thefts?'🚨'+S.thefts:'');
   setRCI('dR',S.dR);setRCI('dC',S.dC);setRCI('dI',S.dI);
   refreshAfford();
 }
 
-/* Barra de información */
+/* ---- barra de información ---- */
 function setBtn(el,d){
   if(!d){el.style.display='none';el._fn=null;return;}
   el.style.display='';el.textContent=d.label;
@@ -870,202 +1210,262 @@ function setBar(o){
   $('ibSub').textContent=o.sub||'';$('ibWarn').textContent=o.warn||'';
   setBtn($('ibA'),o.a);setBtn($('ibB'),o.b);
 }
-function nameOf(c){return TOOLS[c.key].zone?LEVEL_NAMES[c.key][c.level-1]:TOOLS[c.key].name;}
-function problems(c){
-  const p=[];
-  if(!c.hasRoad)p.push('carretera');
-  if(!c.hasPower)p.push('electricidad');
-  if(!c.hasWater)p.push('agua');
-  return p;
+function zoneWarn(b){
+  if(b.fire)return '🔥 ¡INCENDIO! Ingresos −90 % · '+(b.cov.fire?'bomberos en camino':'sin cobertura de bomberos');
+  if(b.theft)return '🚨 ¡ROBO en curso! Ingresos 0 · '+(b.cov.police?'la policía interviene':'sin cobertura policial');
+  const pr=[];
+  if(!b.hasRoad)pr.push('carretera 🚧');if(!b.hasPower)pr.push('electricidad');if(!b.hasWater)pr.push('agua');
+  if(pr.length)return '⚠ Inactivo. Falta: '+pr.join(', ');
+  if(b.trash>=60)return '🗑️ Basura acumulada ('+Math.round(b.trash)+' %): falta recogida';
+  if(b.key==='res'&&b.noise>=1.5)return '🔊 Ruido alto: baja la felicidad';
+  if(b.level>=3)return '✅ Nivel máximo';
+  if(b.level>=2&&b.rtier<2)return '🛣️ Para nivel 3 necesita una Avenida adyacente';
+  const d={res:S.dR,com:S.dC,ind:S.dI}[b.key];
+  if(d<=.08)return 'Sin demanda suficiente para crecer';
+  return '📈 Creciendo ('+b.growth+'/'+GROW[b.level-1]+' días)';
 }
-function inspectBar(c){
-  const T=TOOLS[c.key],refund=Math.floor(c.invested*.5);
-  const dem={res:S.dR,com:S.dC,ind:S.dI};
-  let sub=T.desc,warn='';
-  const demolishBtn={label:'Demoler +$'+refund,cls:'red',fn:function(){doDemolish(c.i,c.j);}};
-  let a=null;
-  if(T.zone){
-    const L=c.level-1;
-    const stat=c.key==='res'?POPCAP[L]+' habitantes':JOBS[c.key][L]+' empleos';
-    sub='Nivel '+c.level+'/3 · '+stat;
-    const pr=problems(c);
-    if(pr.length)warn='⚠ Falta: '+pr.join(', ');
-    else if(c.level<3&&dem[c.key]<=.02)warn='Sin demanda para crecer ('+(c.key==='res'?'R':c.key==='com'?'C':'I')+')';
-    else if(c.level<3)warn='✅ Creciendo ('+c.growth+'/'+GROW[L]+')';
-    else warn='✅ Nivel máximo';
-    if(c.level<3){
-      const cost=UPG[c.key][L];
-      a={label:'Mejorar $'+cost,dis:S.money<cost||!c.active,fn:function(){upgrade(c);}};
+function inspectBar(b){
+  const refund=Math.floor(b.invested*REFUND);
+  const dm={label:'Demoler +$'+refund,cls:'red',fn:function(){doDemolish(b);}};
+  let sub='',warn='',a=null;
+  if(TOOLS[b.key].zone){
+    const L=b.level-1;
+    sub='Nivel '+b.level+'/3 · '+(b.key==='res'?POPCAP[L]+' hab.':JOBS[b.key][L]+' empleos')+' · ~$'+Math.round(b.income)+'/día';
+    warn=zoneWarn(b);
+    if(b.fire)a={label:'Apagar $'+fireCost(b),dis:S.money<fireCost(b),fn:function(){payFire(b);}};
+    else if(b.theft)a={label:'Seguridad $'+theftCost(b),dis:S.money<theftCost(b),fn:function(){payTheft(b);}};
+    else if(b.level<3){
+      const cost=UPG[b.key][L];
+      a={label:'Mejorar $'+cost,dis:S.money<cost||!b.active||(b.level>=2&&b.rtier<2),fn:function(){upgrade(b);}};
     }
+  }else if(b.key==='road'){
+    const R2=ROADS[b.tier];
+    sub='Tráfico '+Math.round(b.traffic)+'/'+R2.cap+' ('+Math.round(b.cong*100)+' %) · mant. $'+R2.upkeep+'/día';
+    warn=b.tier==='avenue'?(b.cong>=.3?'🔊 Mucho tráfico: genera ruido cerca':'Avenida: permite edificios de nivel 3')
+      :(b.cong>1?'⚠ Congestionada: mejórala a Avenida':'Carretera básica (las zonas llegan a nivel 2)');
+    if(b.tier==='basic')a={label:'Avenida $'+ROAD_UPG,dis:S.money<ROAD_UPG,fn:function(){upgradeRoad(b);}};
+  }else if(SV[b.key]){
+    const V=SV[b.key];
+    sub='Radio '+V.r[b.s-1]+' · Atiende '+b.load+'/'+V.cap[b.s-1]+' niv. · mant. $'+V.up[b.s-1]+'/día';
+    warn=b.hasRoad?(b.load>=V.cap[b.s-1]?'⚠ Saturado: amplía con otro servicio':'✅ Operativo'):'🚧 Sin carretera adyacente: inactivo';
+  }else{
+    const T=TOOLS[b.key];
+    sub=T.desc.replace(/\.$/,'')+' · mant. $'+T.upkeep+'/día';
+    if(b.key==='power')sub='Red: '+Math.round(S.powerCons)+'/'+S.powerProd+' · radio 6 · mant. $'+T.upkeep+'/día';
+    if(b.key==='water')sub='Red: '+Math.round(S.waterCons)+'/'+S.waterProd+' · radio 6 · mant. $'+T.upkeep+'/día';
+    warn=b.hasRoad?'✅ Operativo':'🚧 Sin carretera adyacente: inactivo';
   }
-  return {ico:T.icon,title:nameOf(c),sub:sub,warn:warn,a:a,b:demolishBtn};
+  return {ico:iconOf(b),title:nameOf(b),sub:sub,warn:warn,a:a,b:dm};
+}
+function placementBar(){
+  const k=tool,s=sizeOfTool(),cost=costNow();
+  let name,sub;
+  if(k==='road'){
+    const R2=ROADS[curRoad];name=R2.name;
+    sub=curRoad==='basic'?'1 carril por sentido · capacidad '+R2.cap+' · mant. $'+R2.upkeep+'/día'
+      :'Gran capacidad ('+R2.cap+') · permite nivel 3 · hace ruido con tráfico · mant. $'+R2.upkeep+'/día';
+  }else if(SV[k]){
+    const V=SV[k];name=V.names[s-1];
+    sub='Radio '+V.r[s-1]+' · Capacidad '+V.cap[s-1]+' niv. · mant. $'+V.up[s-1]+'/día';
+  }else{
+    name=TOOLS[k].name;sub=TOOLS[k].desc.replace(/\.$/,'')+(TOOLS[k].upkeep?' · mant. $'+TOOLS[k].upkeep+'/día':'');
+  }
+  if(!sel){
+    setBar({ico:TOOLS[k].icon,title:name,sub:sub,warn:k==='road'?'Toca una celda para colocarla · $'+cost:'Toca una celda para la vista previa · $'+cost});
+    return;
+  }
+  const fp=fpOf(sel.i,sel.j,s);
+  if(!isFree(fp)){setBar({ico:TOOLS[k].icon,title:name,sub:'Esa zona está ocupada',warn:'Elige un hueco libre'+(s>1?' de '+s+'×'+s:'')});return;}
+  let warn='';
+  if(k!=='road'){
+    const w=[],px=fp.i+s/2,pz=fp.j+s/2;
+    if(!adjRoads(fp).length)w.push('carretera adyacente 🚧');
+    if(TOOLS[k].zone){
+      if(!svcNear('power',px,pz,R.power))w.push('electricidad');
+      if(!svcNear('water',px,pz,R.water))w.push('agua');
+    }
+    if(w.length)warn='⚠ Necesitará: '+w.join(', ');
+  }
+  setBar({ico:TOOLS[k].icon,title:name,sub:sub,warn:warn,a:{label:'Construir $'+cost,dis:S.money<cost,fn:confirmBuild}});
 }
 function updateBar(){
+  const c=sel?grid[sel.i][sel.j]:null;
   if(tool===null){
-    if(!sel){setBar(null);return;}
-    const c=grid[sel.i][sel.j];
-    if(!c){setBar(null);return;}
+    if(!sel||!c){
+      if(!ALL.length)setBar({ico:'🏗️',title:'Tu ciudad está vacía',sub:'Empieza con una 🛣️ carretera y coloca ⚡ energía y 💧 agua junto a ella',warn:'Todo edificio necesita una carretera adyacente'});
+      else setBar(null);
+      return;
+    }
     setBar(inspectBar(c));return;
   }
   if(tool==='demolish'){
-    if(!sel){setBar({ico:'🔨',title:'Modo demolición',sub:'Toca un edificio · recuperas el 50 % de lo invertido'});return;}
-    const c=grid[sel.i][sel.j];
+    if(!sel){setBar({ico:'🔨',title:'Modo demolición',sub:'Toca un edificio · solo recuperas el 20 % de lo invertido'});return;}
     if(!c){setBar({ico:'🔨',title:'Nada que demoler',sub:'Esta celda está vacía'});return;}
-    const refund=Math.floor(c.invested*.5);
-    setBar({ico:'🔨',title:'Demoler '+nameOf(c),sub:'Recuperas $'+refund,a:{label:'Demoler +$'+refund,cls:'red',fn:function(){doDemolish(sel.i,sel.j);}}});
+    const refund=Math.floor(c.invested*REFUND);
+    setBar({ico:'🔨',title:'Demoler '+nameOf(c),sub:'Recuperas $'+refund+' (20 %)',a:{label:'Demoler +$'+refund,cls:'red',fn:function(){doDemolish(c);}}});
     return;
   }
-  const T=TOOLS[tool];
-  if(!sel){setBar({ico:T.icon,title:T.name,sub:'Toca una celda para ver la vista previa · $'+T.cost});return;}
-  if(grid[sel.i][sel.j]){setBar({ico:T.icon,title:T.name,sub:'Esta celda ya está ocupada',warn:'Elige una celda libre'});return;}
-  let warn='';
-  if(T.zone){
-    const w=[];
-    if(!roadAdj(sel.i,sel.j))w.push('carretera');
-    if(!hasService(sel.i,sel.j,'power',R.power))w.push('electricidad');
-    if(!hasService(sel.i,sel.j,'water',R.water))w.push('agua');
-    if(w.length)warn='⚠ Necesitará: '+w.join(', ');
-  }
-  setBar({ico:T.icon,title:T.name,sub:T.desc,warn:warn,
-    a:{label:'Construir $'+T.cost,dis:S.money<T.cost,fn:confirmBuild}});
+  placementBar();
 }
 
-/* Toolbar */
+/* ---- barra de herramientas y subpaneles ---- */
 const CATS=[
-  {id:'res',ic:'🏠',lb:'Casas',c:'#4cd964',tool:'res'},
-  {id:'com',ic:'🏪',lb:'Comercio',c:'#3b9cff',tool:'com'},
-  {id:'ind',ic:'🏭',lb:'Industria',c:'#ffb020',tool:'ind'},
-  {id:'road',ic:'🛣️',lb:'Carretera',c:'#b0bac5',tool:'road'},
-  {id:'park',ic:'🌳',lb:'Parque',c:'#2ecc71',tool:'park'},
-  {id:'svc',ic:'🔌',lb:'Servicios',c:'#b36bff',svc:true},
-  {id:'dem',ic:'🔨',lb:'Demoler',c:'#ff5a5f',tool:'demolish'}
+  {ic:'🏠',lb:'Casas',c:'#4cd964',tool:'res',co:'$'+TOOLS.res.cost},
+  {ic:'🏪',lb:'Comercio',c:'#3b9cff',tool:'com',co:'$'+TOOLS.com.cost},
+  {ic:'🏭',lb:'Industria',c:'#ffb020',tool:'ind',co:'$'+TOOLS.ind.cost},
+  {ic:'🛣️',lb:'Carretera',c:'#b0bac5',tool:'road',co:'$'+ROADS.basic.cost+'+',min:ROADS.basic.cost},
+  {ic:'🌳',lb:'Parque',c:'#2ecc71',tool:'park',co:'$'+TOOLS.park.cost},
+  {ic:'🔌',lb:'Servicios',c:'#b36bff',svc:true,co:'$'+SV.waste.cost[0]+'+',min:SV.waste.cost[0]},
+  {ic:'🔨',lb:'Demoler',c:'#ff5a5f',tool:'demolish',co:'20 %',min:0}
 ];
-(function buildToolbar(){
+const catOn=cat=>cat.svc?KINDS.indexOf(tool)>=0:tool===cat.tool;
+(function(){
   const tb=$('toolbar');
   CATS.forEach(function(cat){
     const b=document.createElement('button');
     b.className='tb';b.style.setProperty('--c',cat.c);
-    const co=cat.svc?'$500+':cat.tool==='demolish'?'+50%':'$'+TOOLS[cat.tool].cost;
-    b.innerHTML='<span class="ic">'+cat.ic+'</span><span class="lb">'+cat.lb+'</span><span class="co">'+co+'</span>';
+    b.innerHTML='<span class="ic">'+cat.ic+'</span><span class="lb">'+cat.lb+'</span><span class="co">'+cat.co+'</span>';
     b.addEventListener('click',function(){
       ensureAudio();SFX.click();
-      if(cat.svc)setTool(SVC.indexOf(tool)>=0?null:'power');
+      if(cat.svc)setTool(KINDS.indexOf(tool)>=0?null:'power');
       else setTool(tool===cat.tool?null:cat.tool);
     });
     cat.el=b;tb.appendChild(b);
   });
-  const sb=$('subbar');
-  SVC.forEach(function(k){
-    const T=TOOLS[k];
-    const b=document.createElement('button');
-    b.className='sb';b.dataset.k=k;
-    b.innerHTML='<i>'+T.icon+'</i><b>'+T.name+'</b><small>$'+T.cost+'</small>';
-    b.addEventListener('click',function(){ensureAudio();SFX.click();setTool(k);});
-    sb.appendChild(b);
-  });
 })();
-function refreshCats(){
-  CATS.forEach(function(cat){
-    const on=cat.svc?SVC.indexOf(tool)>=0:tool===cat.tool;
-    cat.el.classList.toggle('on',on);
-  });
-  const open=SVC.indexOf(tool)>=0;
-  $('subbar').classList.toggle('hidden',!open);
-  Array.prototype.forEach.call($('subbar').children,function(b){b.classList.toggle('on',b.dataset.k===tool);});
-  refreshAfford();
+function sbBtn(id,ico,name,small,on){
+  return '<button class="sb'+(on?' on':'')+'" data-id="'+id+'"><i>'+ico+'</i><b>'+name+'</b><small>'+small+'</small></button>';
+}
+function renderSub(){
+  let h1='',h2='';
+  if(tool==='road'){
+    h1=['basic','avenue'].map(k=>sbBtn('road:'+k,ROADS[k].icon,k==='basic'?'Básica':'Avenida','$'+ROADS[k].cost,curRoad===k)).join('');
+  }else if(KINDS.indexOf(tool)>=0){
+    h1=KINDS.map(k=>sbBtn('kind:'+k,TOOLS[k].icon,SHORT[k],'$'+minCost(k)+(SV[k]?'+':''),tool===k)).join('');
+    if(SV[tool])h2=[1,2,3].map(z=>sbBtn('size:'+z,'<span style="font-size:.7em;font-weight:900">'+z+'×'+z+'</span>',['Pequeño','Mediano','Grande'][z-1],'$'+SV[tool].cost[z-1]+' · r'+SV[tool].r[z-1],curSize===z)).join('');
+  }
+  $('sub1').innerHTML=h1;$('sub2').innerHTML=h2;
+  $('sub2').classList.toggle('hidden',!h2);
+  $('subbar').classList.toggle('hidden',!h1);
+}
+function sbCost(id){
+  const p=id.split(':');
+  if(p[0]==='road')return ROADS[p[1]].cost;
+  if(p[0]==='kind')return minCost(p[1]);
+  return SV[tool]?SV[tool].cost[+p[1]-1]:0;
 }
 function refreshAfford(){
   CATS.forEach(function(cat){
-    const cost=cat.svc?500:(cat.tool==='demolish'?0:TOOLS[cat.tool].cost);
+    const cost=cat.min!=null?cat.min:(cat.tool?TOOLS[cat.tool].cost:0);
     cat.el.classList.toggle('poor',S.money<cost);
   });
-  Array.prototype.forEach.call($('subbar').children,function(b){b.classList.toggle('poor',S.money<TOOLS[b.dataset.k].cost);});
+  Array.prototype.forEach.call(document.querySelectorAll('#subbar .sb'),function(b){b.classList.toggle('poor',S.money<sbCost(b.dataset.id));});
 }
-function setTool(k){
-  tool=k;sel=null;
+function refreshCats(){
+  CATS.forEach(function(cat){cat.el.classList.toggle('on',catOn(cat));});
+  renderSub();refreshAfford();
+}
+$('subbar').addEventListener('click',function(e){
+  const b=e.target.closest('[data-id]');if(!b)return;
+  ensureAudio();SFX.click();
+  const p=b.dataset.id.split(':');
+  if(p[0]==='road')curRoad=p[1];
+  else if(p[0]==='kind')tool=p[1];
+  else curSize=+p[1];
   refreshSel();refreshCats();
-}
+});
+function setTool(k){tool=k;sel=null;refreshSel();refreshCats();}
 
-/* Vista previa */
+/* ---- vista previa 3D ---- */
 function updateGhost(){
   ghost.visible=false;tile.visible=false;gDisc.visible=false;gRing.visible=false;
   if(!sel)return;
-  const i=sel.i,j=sel.j,c=grid[i][j];
-  tile.position.set(cx(i),.13,cz(j));tile.visible=true;
-  if(tool===null){tile.material.color.set('#ffe066');return;}
-  if(tool==='demolish'){tile.material.color.set(c?'#ff4d4d':'#9aa5b1');return;}
-  const T=TOOLS[tool],free=!c,afford=S.money>=T.cost;
-  tile.material.color.set(!free?'#ff4d4d':(afford?'#4cff7a':'#ffb347'));
-  if(free){
-    ghost.geometry=tool==='road'?roadGeo(roadMaskAt(i,j)):geoFor({key:tool,level:1,variant:0});
-    ghost.position.set(cx(i),0,cz(j));ghost.visible=true;
-    const r=GHOST_R[tool];
-    if(r){
-      gDisc.material.color.set(COVER_COL[tool]);gRing.material.color.set(COVER_COL[tool]);
-      [gDisc,gRing].forEach(function(m){m.position.x=cx(i);m.position.z=cz(j);m.scale.set(r,1,r);m.visible=true;});
-    }
+  const c=grid[sel.i][sel.j];
+  if(tool===null){if(c)showTile(c.i,c.j,c.s,'#ffe066');return;}
+  if(tool==='demolish'){if(c)showTile(c.i,c.j,c.s,'#ff4d4d');else showTile(sel.i,sel.j,1,'#9aa5b1');return;}
+  const s=sizeOfTool(),fp=fpOf(sel.i,sel.j,s),free=isFree(fp);
+  showTile(fp.i,fp.j,s,!free?'#ff4d4d':(S.money>=costNow()?'#4cff7a':'#ffb347'));
+  if(!free)return;
+  ghost.geometry=tool==='road'?roadGeo(roadMaskAt(fp.i,fp.j),curRoad):geoFor({key:tool,level:1,variant:0,s:s});
+  ghost.position.set(fp.i+s/2-HALF,0,fp.j+s/2-HALF);ghost.visible=true;
+  const r=toolRadius(tool,s);
+  if(r){
+    gDisc.material.color.set(COVER_COL[tool]);gRing.material.color.set(COVER_COL[tool]);
+    [gDisc,gRing].forEach(function(m){m.position.x=fp.i+s/2-HALF;m.position.z=fp.j+s/2-HALF;m.scale.set(r,1,r);m.visible=true;});
   }
 }
 function refreshSel(){updateGhost();updateBar();}
 
-/* Acciones */
-function confirmBuild(){if(tool&&sel&&tool!=='demolish')build(sel.i,sel.j,tool);}
-function build(i,j,key){
-  const T=TOOLS[key];
-  if(grid[i][j]){toast('La celda está ocupada');SFX.error();return false;}
-  if(S.money<T.cost){toast('Dinero insuficiente');SFX.error();return false;}
-  S.money-=T.cost;
-  placeBuilding(i,j,key,{});
-  SFX.build();
-  sel=null;
+/* ---- acciones ---- */
+function confirmBuild(){if(tool&&sel&&tool!=='demolish')buildAt(fpOf(sel.i,sel.j,sizeOfTool()));}
+function buildAt(fp){
+  const key=tool,cost=costNow();
+  if(!isFree(fp)){toast('La zona está ocupada');SFX.error();return false;}
+  if(S.money<cost){toast('Dinero insuficiente');SFX.error();return false;}
+  S.money-=cost;
+  placeBuilding(key,fp.i,fp.j,{size:fp.s,tier:key==='road'?curRoad:'basic'});
+  SFX.build();sel=null;
   recalc();refreshSel();save();
   return true;
 }
-function doDemolish(i,j){
-  const c=removeCell(i,j);if(!c)return;
-  const refund=Math.floor(c.invested*.5);
+function doDemolish(b){
+  if(grid[b.i][b.j]!==b)return;
+  const refund=Math.floor(b.invested*REFUND);
   S.money+=refund;
-  fxRing(i,j,'#ff5a5f');SFX.demolish();
-  toast('+$'+refund+' recuperados');
-  sel=null;
-  recalc();refreshSel();save();
+  fxRing(b.px-HALF,b.pz-HALF,'#ff5a5f',b.s);
+  removeBuilding(b);SFX.demolish();
+  toast('+$'+refund+' recuperados (20 %)');
+  sel=null;recalc();refreshSel();save();
 }
-function upgrade(c){
-  if(c.level>=3)return;
-  const cost=UPG[c.key][c.level-1];
-  if(!c.active){toast('Necesita carretera, energía y agua');SFX.error();return;}
+function upgrade(b){
+  if(b.level>=3)return;
+  const cost=UPG[b.key][b.level-1];
+  if(!b.active){toast('Necesita carretera, energía y agua');SFX.error();return;}
+  if(b.level>=2&&b.rtier<2){toast('Para nivel 3 necesita una Avenida adyacente');SFX.error();return;}
   if(S.money<cost){toast('Dinero insuficiente');SFX.error();return;}
-  S.money-=cost;c.invested+=cost;
-  levelUp(c);SFX.levelup();
+  S.money-=cost;b.invested+=cost;
+  levelUp(b);SFX.levelup();
   recalc();updateBar();save();
+}
+function upgradeRoad(b){
+  if(S.money<ROAD_UPG){toast('Dinero insuficiente');SFX.error();return;}
+  S.money-=ROAD_UPG;b.tier='avenue';b.invested+=ROAD_UPG;
+  b.mesh.geometry=roadGeo(roadMaskAt(b.i,b.j),'avenue');
+  fxRing(b.px-HALF,b.pz-HALF,'#ffe066',1);SFX.build();
+  recalc();updateBar();save();
+}
+function payFire(z){
+  const c=fireCost(z);
+  if(S.money<c){toast('Dinero insuficiente');SFX.error();return;}
+  S.money-=c;extinguish(z,true);recalc();refreshSel();save();
+}
+function payTheft(z){
+  const c=theftCost(z);
+  if(S.money<c){toast('Dinero insuficiente');SFX.error();return;}
+  S.money-=c;resolveTheft(z,true);recalc();refreshSel();save();
 }
 function handleTap(i,j){
   if(!inb(i,j)){sel=null;refreshSel();return;}
-  if(tool===null){
-    const c=grid[i][j];sel=c?{i:i,j:j}:null;
-    SFX.click();refreshSel();return;
+  const c=grid[i][j];
+  if(tool===null){sel=c?{i:i,j:j}:null;SFX.click();refreshSel();return;}
+  if(tool==='demolish'){
+    const same=!!c&&!!sel&&grid[sel.i][sel.j]===c;
+    if(c&&(CFG.quick||same)){doDemolish(c);return;}
+    sel={i:i,j:j};SFX.click();refreshSel();return;
   }
-  if(CFG.quick){
-    if(tool==='demolish'){if(grid[i][j])doDemolish(i,j);else SFX.click();}
-    else build(i,j,tool);
-    return;
-  }
-  const same=sel&&sel.i===i&&sel.j===j;
-  if(same){
-    if(tool==='demolish'){if(grid[i][j])doDemolish(i,j);}
-    else build(i,j,tool);
-    return;
-  }
+  const s=sizeOfTool(),fp=fpOf(i,j,s);
+  if(tool==='road'||CFG.quick){buildAt(fp);return;}
+  const cur=sel?fpOf(sel.i,sel.j,s):null;
+  if(cur&&cur.i===fp.i&&cur.j===fp.j){buildAt(fp);return;}
   sel={i:i,j:j};SFX.click();refreshSel();
 }
 
-/* Botones HUD / barra */
+/* ---- botones HUD / barra ---- */
 $('ibA').addEventListener('click',function(){if(this._fn)this._fn();});
 $('ibB').addEventListener('click',function(){if(this._fn)this._fn();});
 $('ibX').addEventListener('click',function(){
   SFX.click();
-  if(sel){sel=null;refreshSel();}else if(tool){setTool(null);}
-  else setBar(null);
+  if(sel){sel=null;refreshSel();}else if(tool){setTool(null);}else setBar(null);
 });
 $('bSpeed').addEventListener('click',function(){
   ensureAudio();SFX.click();
@@ -1080,17 +1480,19 @@ $('bCover').addEventListener('click',function(){
 });
 $('bMenu').addEventListener('click',function(){ensureAudio();SFX.click();openMenu();});
 
-/* Modal */
+/* ---- modal ---- */
 function openModal(html){$('mBody').innerHTML=html;$('modal').classList.add('show');}
 function closeModal(){$('modal').classList.remove('show');}
 function helpHTML(){
   return '<h2>🏙️ Cómo jugar</h2><ul>'+
-    '<li>Elige una categoría abajo y <b>toca una celda</b> para ver la vista previa. Toca <b>otra vez</b> (o pulsa Construir) para edificar.</li>'+
-    '<li>Las zonas necesitan <b>carretera adyacente</b>, <b>⚡ electricidad</b> y <b>💧 agua</b> dentro del radio de la planta/torre (círculos de colores).</li>'+
-    '<li>Con demanda <b>RCI</b> positiva, las zonas evolucionan solas hasta el nivel 3. También puedes tocar un edificio y pulsar <b>Mejorar</b>.</li>'+
-    '<li>Parques y comisarías suben la felicidad; la industria cercana a las casas la baja.</li>'+
-    '<li><b>Arrastra</b> para mover la cámara, <b>pellizca</b> para zoom y gira con dos dedos.</li>'+
-    '<li>Cada día (5 s) cobras impuestos y pagas mantenimiento. Demoler devuelve el 50 %.</li></ul>'+
+    '<li>Empiezas con <b>$1.500</b> y la ciudad vacía. Primero una <b>🛣️ carretera</b>; las carreteras se colocan con un toque.</li>'+
+    '<li><b>Todo edificio</b> necesita una carretera adyacente; si no, muestra 🚧 y queda inactivo. Las zonas además necesitan ⚡ y 💧 dentro del radio.</li>'+
+    '<li>Con otras herramientas, toca una celda para ver la vista previa y toca <b>otra vez</b> (o «Construir») para edificar.</li>'+
+    '<li>Las zonas crecen <b>despacio</b> (14 y 26 días de demanda estable). El nivel 3 exige una <b>Avenida</b> adyacente.</li>'+
+    '<li><b>Servicios</b>: policía, bomberos y residuos en 3 tamaños (más radio, capacidad y mantenimiento).</li>'+
+    '<li>Sin recogida, la <b>🗑️ basura</b> se acumula. Industria y avenidas con tráfico hacen <b>🔊 ruido</b>.</li>'+
+    '<li>Pueden estallar <b>🔥 incendios</b> y <b>🚨 robos</b>, sobre todo sin cobertura. Hunden ingresos y felicidad: los servicios los resuelven solos o puedes pagar la solución.</li>'+
+    '<li>Demoler solo devuelve el <b>20 %</b>. Arrastra para mover la cámara, pellizca para el zoom.</li></ul>'+
     '<button class="btn" data-act="close" style="width:100%;font-size:.9em">¡A construir!</button>';
 }
 function openMenu(){
@@ -1110,7 +1512,7 @@ $('mBody').addEventListener('click',function(e){
   else if(act==='quick'){CFG.quick=!CFG.quick;saveCfg();openMenu();SFX.click();}
   else if(act==='help'){openModal(helpHTML());}
   else if(act==='reset'){
-    if(b.dataset.armed){resetCity();closeModal();toast('🏗️ Nueva ciudad creada');}
+    if(b.dataset.armed){resetCity();closeModal();toast('🏗️ Nueva ciudad: $'+START_MONEY);}
     else{b.dataset.armed='1';b.textContent='⚠️ ¿Seguro? Toca de nuevo para borrar todo';}
   }
 });
@@ -1160,6 +1562,7 @@ window.addEventListener('orientationchange',function(){setTimeout(resize,200);})
 if(window.ResizeObserver)new ResizeObserver(resize).observe(app);
 resize();
 
+
 /* ====================== BUCLE PRINCIPAL ====================== */
 let last=performance.now(),dayT=0,tt=0;
 function loop(now){
@@ -1171,7 +1574,7 @@ function loop(now){
     if(dayT>=DAY_LEN){dayT-=DAY_LEN;dayTick();}
   }
   $('dayBar').style.width=(dayT/DAY_LEN*100).toFixed(1)+'%';
-  /* animación de aparición */
+  /* aparición de edificios */
   for(let k=anims.length-1;k>=0;k--){
     const a=anims[k];a.t+=dt;
     const q=Math.min(1,a.t/.45);
@@ -1182,12 +1585,17 @@ function loop(now){
     const f=fxList[k];f.t+=dt;
     const q=f.t/.55;
     if(q>=1){scene.remove(f.m);f.m.material.dispose();fxList.splice(k,1);continue;}
-    f.m.scale.setScalar(.3+q*1.2);f.m.material.opacity=.9*(1-q);
+    f.m.scale.setScalar((.3+q*1.2)*f.sz);f.m.material.opacity=.9*(1-q);
   }
-  /* iconos de problema */
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-    const c=grid[i][j];
-    if(c&&c.icon)c.icon.position.y=HGT[c.key][c.level-1]+.5+Math.sin(tt*3+i+j)*.06;
+  /* iconos de aviso y llamas */
+  for(const b of ALL){
+    if(b.icon)b.icon.position.y=topY(b)+.5+Math.sin(tt*3+b.i+b.j)*.06;
+    if(b.flames){
+      b.flames.children.forEach(function(m){
+        const u=m.userData,k=1+.25*Math.sin(tt*9+u.ph);
+        m.scale.set(u.s0*k,u.s0*(1.1+.5*Math.sin(tt*7+u.ph)),u.s0*k);
+      });
+    }
   }
   if(ghost.visible){
     ghostMat.opacity=.55+.15*Math.sin(tt*6);
@@ -1200,13 +1608,14 @@ function loop(now){
 }
 
 /* ====================== ARRANQUE ====================== */
-if(!load())starter();
+load();
 recalc();
 refreshSel();refreshCats();
 boot.style.display='none';
 requestAnimationFrame(loop);
 if(!CFG.help)openModal(helpHTML());
 window.addEventListener('beforeunload',save);
+
 })();
 </script>
 </body>
